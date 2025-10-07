@@ -51,6 +51,24 @@ setup_config() {
     fi
 }
 
+# 测试连接
+test_connection() {
+    log_info "正在测试与Telegram API的连通性..."
+
+    # 使用curl测试网络连接，设置15秒超时
+    if curl --connect-timeout 15 -s -o /dev/null https://api.telegram.org; then
+        log_info "✅ 与Telegram API连通性测试通过"
+        return 0
+    else
+        log_error "❌ 无法连接到Telegram API服务器"
+        log_warn "可能的解决方案："
+        echo "  1. 检查服务器的网络连接和防火墙设置。"
+        echo "  2. 确认服务器可以访问外网，特别是 api.telegram.org。"
+        echo "  3. 如果在网络受限的环境，请在 .env 文件中配置 PROXY_URL。"
+        return 1
+    fi
+}
+
 # 部署应用
 deploy() {
     log_info "开始部署..."
@@ -68,13 +86,24 @@ deploy() {
     log_info "部署完成！"
 
     # 等待服务启动
-    sleep 5
+    sleep 10
 
     # 检查状态
     if docker-compose ps | grep -q "Up"; then
         log_info "服务启动成功"
         log_info "访问 http://localhost:5000/health 检查服务状态"
         log_info "查看日志: docker-compose logs -f"
+
+        # 等待一段时间让服务完全启动
+        log_info "等待服务完全启动..."
+        sleep 5
+
+        # 检查容器日志中是否有错误
+        if docker-compose logs --tail=20 | grep -i "error\|failed\|timeout"; then
+            log_warn "检测到可能的错误，请查看完整日志"
+        else
+            log_info "✅ 服务运行正常"
+        fi
     else
         log_error "服务启动失败，请查看日志: docker-compose logs"
     fi
@@ -86,7 +115,15 @@ main() {
 
     check_docker
     setup_config
-    deploy
+
+    # 在部署前测试连接
+    if test_connection; then
+        deploy
+    else
+        log_error "连接测试失败，取消部署"
+        log_info "请解决网络连接问题后重试"
+        exit 1
+    fi
 }
 
 main "$@"

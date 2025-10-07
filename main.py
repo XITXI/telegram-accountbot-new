@@ -28,8 +28,9 @@ from bot_handlers import BotHandlers
 import nest_asyncio
 from dotenv import load_dotenv
 
-# 嵌套异步io
-nest_asyncio.apply()
+# 只在Windows环境下应用嵌套异步io
+if sys.platform == "win32":
+    nest_asyncio.apply()
 
 # 加载环境变量
 load_dotenv()
@@ -105,9 +106,27 @@ class AliyunBalanceBot:
             self.handlers = BotHandlers(self.db, self.aliyun_client, self.monitor)
 
             # 创建Telegram应用
-            request = None
+            # 使用配置的超时时间，避免服务器网络波动导致连接超时
+            # Linux环境下使用更激进的超时设置
+            if sys.platform.startswith("linux"):
+                # Linux容器环境下的网络优化
+                request = HTTPXRequest(
+                    connect_timeout=Config.CONNECT_TIMEOUT,
+                    read_timeout=Config.READ_TIMEOUT,
+                    pool_timeout=Config.POOL_TIMEOUT,
+                    # Linux环境下的额外网络优化
+                    http2=False,  # 禁用HTTP/2以提高兼容性
+                )
+            else:
+                request = HTTPXRequest(
+                    connect_timeout=Config.CONNECT_TIMEOUT,
+                    read_timeout=Config.READ_TIMEOUT,
+                    pool_timeout=Config.POOL_TIMEOUT,
+                )
+
+            # 如果配置了代理，则使用代理
             if Config.PROXY_URL:
-                request = HTTPXRequest(proxy=Config.PROXY_URL)
+                request.proxy = Config.PROXY_URL
 
             self.application = (
                 Application.builder().token(Config.BOT_TOKEN).request(request).build()
@@ -189,11 +208,27 @@ class AliyunBalanceBot:
         """启动Webhook模式"""
         health_runner = None
         try:
-            # 设置webhook
+            # 设置webhook，增加重试机制
             webhook_url = f"{Config.WEBHOOK_URL}/webhook"
-            await self.application.bot.set_webhook(
-                url=webhook_url, allowed_updates=Update.ALL_TYPES
-            )
+            max_retries = 3
+            retry_delay = 5
+            for attempt in range(max_retries):
+                try:
+                    await self.application.bot.set_webhook(
+                        url=webhook_url, allowed_updates=Update.ALL_TYPES
+                    )
+                    logger.info(f"Webhook设置成功: {webhook_url}")
+                    break
+                except Exception as e:
+                    logger.error(
+                        f"设置Webhook失败 (尝试 {attempt + 1}/{max_retries}): {e}"
+                    )
+                    if attempt < max_retries - 1:
+                        await asyncio.sleep(retry_delay)
+                        retry_delay *= 2
+                    else:
+                        logger.error("所有重试都失败，无法设置Webhook")
+                        raise
 
             # 创建健康检查服务器
             app = web.Application()
@@ -226,18 +261,35 @@ class AliyunBalanceBot:
 
     async def start_polling(self):
         """启动轮询模式（用于开发测试）"""
-        try:
-            # 删除webhook
-            await self.application.bot.delete_webhook()
+        max_retries = 3
+        retry_delay = 5
 
-            # 启动轮询
-            await self.application.run_polling(
-                allowed_updates=Update.ALL_TYPES, drop_pending_updates=True
-            )
+        for attempt in range(max_retries):
+            try:
+                # 删除webhook
+                await self.application.bot.delete_webhook()
+                logger.info(
+                    f"Webhook已删除，开始启动轮询模式 (尝试 {attempt + 1}/{max_retries})"
+                )
 
-        except Exception as e:
-            logger.error(f"启动轮询失败: {e}")
-            raise
+                # 启动轮询，增加超时配置
+                await self.application.run_polling(
+                    allowed_updates=Update.ALL_TYPES,
+                    drop_pending_updates=True,
+                    poll_interval=2.0,  # 轮询间隔2秒
+                    timeout=20,  # 长轮询超时20秒
+                )
+                break  # 如果成功启动，跳出重试循环
+
+            except Exception as e:
+                logger.error(f"启动轮询失败 (尝试 {attempt + 1}/{max_retries}): {e}")
+                if attempt < max_retries - 1:
+                    logger.info(f"等待 {retry_delay} 秒后重试...")
+                    await asyncio.sleep(retry_delay)
+                    retry_delay *= 2  # 指数退避
+                else:
+                    logger.error("所有重试都失败，无法启动轮询模式")
+                    raise
 
     async def start(self, use_webhook=True):
         """启动机器人"""
@@ -339,8 +391,12 @@ async def main():
         bot_instance = AliyunBalanceBot()
 
         # 根据环境变量决定使用webhook还是polling
-        # 在Windows环境下，优先使用轮询模式以避免事件循环问题
-        use_webhook = Config.WEBHOOK_URL is not None and sys.platform != "win32"
+        # 优先使用轮询模式，除非明确配置了WEBHOOK_URL且不是Windows环境
+        use_webhook = (
+            Config.WEBHOOK_URL is not None
+            and Config.WEBHOOK_URL.strip() != ""
+            and sys.platform != "win32"
+        )
 
         logger.info("=== 阿里云余额监控机器人启动 ===")
         logger.info(f"模式: {'Webhook' if use_webhook else 'Polling'}")
@@ -389,6 +445,18 @@ if __name__ == "__main__":
                 except Exception as close_e:
                     logger.warning(f"关闭事件循环时出现警告: {close_e}")
         else:
+            # Linux/Unix环境下的优化处理
+            if sys.platform.startswith("linux"):
+                # Linux环境下设置事件循环策略以优化网络性能
+                try:
+                    import uvloop  # type: ignore
+
+                    asyncio.set_event_loop_policy(uvloop.EventLoopPolicy())
+                    logger.info("使用uvloop事件循环以提升性能")
+                except ImportError:
+                    # 如果没有uvloop，使用默认策略但进行优化
+                    logger.info("使用默认事件循环")
+
             # 其他平台使用标准方式
             success = asyncio.run(main())
 

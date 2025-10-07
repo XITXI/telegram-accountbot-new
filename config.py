@@ -27,6 +27,11 @@ class Config:
     # 数据库配置
     DATABASE_PATH = os.getenv("DATABASE_PATH", "bot_data.db")
 
+    # 网络超时配置
+    CONNECT_TIMEOUT = int(os.getenv("CONNECT_TIMEOUT", 30))
+    READ_TIMEOUT = int(os.getenv("READ_TIMEOUT", 30))
+    POOL_TIMEOUT = int(os.getenv("POOL_TIMEOUT", 30))
+
     # 阿里云配置（支持环境变量加载 + 运行时更新）
     ALIYUN_ACCESS_KEY_ID = os.getenv("ALIYUN_ACCESS_KEY_ID")
     ALIYUN_ACCESS_KEY_SECRET = os.getenv("ALIYUN_ACCESS_KEY_SECRET")
