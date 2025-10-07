@@ -1,11 +1,13 @@
 # Telegram Bot
 python-telegram-bot==20.7
 
-# 阿里云SDK - 只保留GetCreditInfo API所需的包
-alibabacloud-bssopenapi20171214==5.0.0
-alibabacloud-tea-openapi==0.3.7
-alibabacloud-tea-util==0.3.11
-alibabacloud-endpoint-util==0.0.3
+# Aliyun SDK
+alibabacloud-agency20221216==1.6.1
+alibabacloud-tea-openapi>=0.3.10,<1.0.0
+alibabacloud-tea-util
+alibabacloud-endpoint-util
 
-# 基础依赖
+# Basic dependencies
 python-dotenv==1.0.0
+nest-asyncio==1.5.8
+aiohttp==3.9.1

@@ -1,8 +1,8 @@
 import logging
 from typing import Optional, Dict
-from alibabacloud_bssopenapi20171214.client import Client as BssOpenApiClient
+from alibabacloud_agency20221216.client import Client as AgencyClient
 from alibabacloud_tea_openapi import models as open_api_models
-from alibabacloud_bssopenapi20171214 import models as bss_models
+from alibabacloud_agency20221216 import models as agency_models
 from alibabacloud_tea_util import models as util_models
 from config import Config
 
@@ -24,9 +24,9 @@ class AliyunClient:
             config = open_api_models.Config(
                 access_key_id=Config.ALIYUN_ACCESS_KEY_ID,
                 access_key_secret=Config.ALIYUN_ACCESS_KEY_SECRET,
-                endpoint="business.aliyuncs.com",
+                endpoint="agency.aliyuncs.com",
             )
-            self.client = BssOpenApiClient(config)
+            self.client = AgencyClient(config)
             logger.info("阿里云客户端初始化成功")
         except Exception as e:
             logger.error(f"阿里云客户端初始化失败: {e}")
@@ -40,67 +40,50 @@ class AliyunClient:
     def get_credit_info(self, uid: str) -> Optional[Dict]:
         """获取指定UID的信用信息
 
-        使用阿里云BSS OpenAPI的GetCreditInfo接口获取真实的信用信息
+        使用阿里云Agency OpenAPI的GetAccountInfo接口获取账户信息
         """
         if not self.client:
             logger.error("阿里云客户端未初始化")
             return None
 
         try:
-            # 创建GetCreditInfo请求
-            if hasattr(bss_models, "GetCreditInfoRequest"):
-                request = bss_models.GetCreditInfoRequest()
-                request.uid = uid  # 设置要查询的用户UID
+            request = agency_models.GetAccountInfoRequest(uid=int(uid))
+            logger.info(f"开始查询UID {uid} 的账户信息")
 
-                logger.info(f"开始查询UID {uid} 的信用信息")
+            runtime = util_models.RuntimeOptions()
+            response = self.client.get_account_info_with_options(request, runtime)
 
-                runtime = util_models.RuntimeOptions()
-                response = self.client.get_credit_info_with_options(request, runtime)
+            if response.status_code == 200 and response.body:
+                account_info = response.body.account_info_list.account_info[0]
 
-                if response.status_code == 200 and response.body:
-                    credit_data = response.body.data
+                result = {
+                    "uid": uid,
+                    "available_credit": float(account_info.available_amount or 0),
+                    "credit_line": float(account_info.credit_line or 0),
+                    "success": True,
+                }
 
-                    result = {
-                        "uid": uid,
-                        "available_credit": float(credit_data.available_credit or 0),
-                        "credit_line": float(credit_data.credit_line or 0),
-                        "outstanding_balance": float(
-                            credit_data.outstanding_balance or 0
-                        ),
-                        "zero_credit_shutdown": bool(credit_data.zero_credit_shutdown),
-                        "new_buy_status": credit_data.new_buy_status or "Normal",
-                        "success": True,
-                    }
-
-                    logger.info(
-                        f"成功获取UID {uid} 的信用信息: 可用余额={result['available_credit']:.2f}"
-                    )
-                    return result
-                else:
-                    logger.error(
-                        f"获取UID {uid} 信用信息失败: HTTP {response.status_code}"
-                    )
-                    return {
-                        "uid": uid,
-                        "success": False,
-                        "error": f"HTTP {response.status_code}",
-                    }
+                logger.info(
+                    f"成功获取UID {uid} 的账户信息: 可用余额={result['available_credit']:.2f}"
+                )
+                return result
             else:
-                logger.error("GetCreditInfoRequest类不存在，SDK版本可能不兼容")
+                logger.error(
+                    f"获取UID {uid} 账户信息失败: HTTP {response.status_code} - {response.body.message}"
+                )
                 return {
                     "uid": uid,
                     "success": False,
-                    "error": "SDK不支持GetCreditInfo接口",
+                    "error": f"HTTP {response.status_code} - {response.body.message}",
                 }
 
         except Exception as e:
             error_msg = str(e)
-            logger.error(f"调用GetCreditInfo API失败 (UID: {uid}): {error_msg}")
+            logger.error(f"调用GetAccountInfo API失败 (UID: {uid}): {error_msg}")
 
-            # 根据不同错误类型提供更具体的错误信息
             if "Forbidden" in error_msg or "AccessDenied" in error_msg:
-                error_type = "权限不足，请检查AK/SK是否有GetCreditInfo权限"
-            elif "InvalidUser" in error_msg or "UserNotFound" in error_msg:
+                error_type = "权限不足，请检查AK/SK是否有权限"
+            elif "InvalidParameter" in error_msg or "UserNotFound" in error_msg:
                 error_type = "用户UID不存在或无效"
             elif "Throttling" in error_msg:
                 error_type = "请求频率过高，请稍后重试"
@@ -116,21 +99,21 @@ class AliyunClient:
         if not self.client:
             return False
 
-        # 如果提供了测试UID，则用GetCreditInfo验证
+        # 如果提供了测试UID，则用GetAccountInfo验证
         test_uid = getattr(Config, "ALIYUN_RESELLER_TEST_UID", None)
         if test_uid:
             try:
                 result = self.get_credit_info(test_uid)
                 if result and result.get("success"):
-                    logger.info("凭证验证成功（GetCreditInfo）")
+                    logger.info("凭证验证成功（GetAccountInfo）")
                     return True
                 else:
                     logger.error(
-                        f"凭证验证失败（GetCreditInfo）: {result.get('error') if result else 'unknown'}"
+                        f"凭证验证失败（GetAccountInfo）: {result.get('error') if result else 'unknown'}"
                     )
                     return False
             except Exception as e:
-                logger.error(f"凭证验证异常（GetCreditInfo）: {e}")
+                logger.error(f"凭证验证异常（GetAccountInfo）: {e}")
                 return False
 
         # 如果没有测试UID，只检查客户端是否初始化成功

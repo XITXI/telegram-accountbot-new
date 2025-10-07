@@ -21,29 +21,52 @@ class BotHandlers:
         self.waiting_for_credentials = {}  # 存储等待输入凭证的用户
 
     async def start_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """处理 /start 命令"""
+        """处理 /start 命令 - 所有用户都可以使用"""
         chat_id = update.effective_chat.id
+        user = update.effective_user
 
-        if not Config.is_admin(chat_id):
-            await update.message.reply_text(" 您没有权限使用此机器人")
-            return
+        # 基本欢迎信息，所有用户都可以看到
+        welcome_text = (
+            f"🎉 欢迎使用阿里云余额监控机器人！\n\n"
+            f"👋 你好 {user.first_name}！\n"
+            f"🆔 您的Telegram ID: `{chat_id}`\n\n"
+        )
 
-        if not self.aliyun_client.is_configured():
-            await update.message.reply_text(
-                " 欢迎使用阿里云余额监控机器人！\n\n"
-                "首次使用需要配置阿里云凭证。\n"
-                "请发送您的阿里云 Access Key ID 和 Access Key Secret，格式如下：\n\n"
-                "`AK:您的AccessKeyID`\n"
-                "`SK:您的AccessKeySecret`\n\n"
-                "例如：\n"
-                "`AK:LTAI4GxxxxxxxxxxxxxxxxxxxxG`\n"
-                "`SK:xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx`\n\n"
-                " 请确保在私聊中发送，避免泄露凭证！",
-                parse_mode="Markdown",
-            )
-            self.waiting_for_credentials[chat_id] = True
+        if Config.is_admin(chat_id):
+            # 管理员用户的完整功能
+            if not self.aliyun_client.is_configured():
+                welcome_text += (
+                    "🔧 首次使用需要配置阿里云凭证。\n"
+                    "请发送您的阿里云 Access Key ID 和 Access Key Secret，格式如下：\n\n"
+                    "`AK:您的AccessKeyID`\n"
+                    "`SK:您的AccessKeySecret`\n\n"
+                    "例如：\n"
+                    "`AK:LTAI4GxxxxxxxxxxxxxxxxxxxxG`\n"
+                    "`SK:xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx`\n\n"
+                    "⚠️ 请确保在私聊中发送，避免泄露凭证！"
+                )
+                await update.message.reply_text(welcome_text, parse_mode="Markdown")
+                self.waiting_for_credentials[chat_id] = True
+            else:
+                await update.message.reply_text(welcome_text, parse_mode="Markdown")
+                await self._show_main_menu(update)
         else:
-            await self._show_main_menu(update)
+            # 普通用户的基本信息
+            welcome_text += (
+                "📋 可用命令：\n"
+                "`/start` - 显示欢迎信息\n"
+                "`/get_id` - 获取您的Telegram ID\n"
+                "`/help` - 显示帮助信息\n\n"
+                "ℹ️ 此机器人主要用于阿里云余额监控，完整功能仅限管理员使用。"
+            )
+            await update.message.reply_text(welcome_text, parse_mode="Markdown")
+
+    async def get_id_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """处理 /get_id 命令 - 所有用户都可以使用"""
+        chat_id = update.effective_chat.id
+        await update.message.reply_text(
+            f"🆔 您的Telegram ID: `{chat_id}`", parse_mode="Markdown"
+        )
 
     async def handle_credentials(
         self, update: Update, context: ContextTypes.DEFAULT_TYPE
@@ -90,14 +113,14 @@ class BotHandlers:
                 await self.monitor.start_monitoring()
                 await update.message.reply_text(" 自动监控已启动")
         else:
-            await update.message.reply_text(" 阿里云凭证验证失败，请检查后重新输入")
+            await update.message.reply_text(" 阿里云凭证验证失败（已设权限），请检查后重新输入")
 
     async def _show_main_menu(self, update: Update):
         """显示主菜单"""
         menu_text = (
             " 阿里云余额监控机器人\n\n"
             " 可用命令：\n"
-            "/bind_aliyun [UID] [备注] [低余额阈值] [突降阈值] - 绑定阿里云账号\n"
+            "/bind_aliyun `[UID] [备注] [低余额阈值] [突降阈值]` - 绑定阿里云账号\n"
             "/unbind_aliyun [UID] - 解绑阿里云账号\n"
             "/list_aliyun - 查看绑定列表\n"
             "/aliyun_balance - 查询所有账号余额\n"
@@ -148,7 +171,7 @@ class BotHandlers:
         credit_info = self.aliyun_client.get_credit_info(uid)
         if not credit_info or not credit_info.get("success"):
             await update.message.reply_text(
-                f" 无法获取UID {uid} 的信息，请检查UID是否正确"
+                f" 无法获取UID {uid} 的信息，请检查UID是否正确，或是否有权限"
             )
             return
 
@@ -416,20 +439,36 @@ class BotHandlers:
         await update.message.reply_text(" 监控已停止")
 
     async def help_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """处理 /help 命令"""
-        await self._show_main_menu(update)
+        """处理 /help 命令 - 所有用户都可以使用"""
+        chat_id = update.effective_chat.id
+
+        if Config.is_admin(chat_id):
+            await self._show_main_menu(update)
+        else:
+            help_text = (
+                "📋 可用命令：\n"
+                "`/start` - 显示欢迎信息\n"
+                "`/get_id` - 获取您的Telegram ID\n"
+                "`/help` - 显示帮助信息\n\n"
+                "ℹ️ 此机器人主要用于阿里云余额监控，完整功能仅限管理员使用。"
+            )
+            await update.message.reply_text(help_text)
 
     async def handle_message(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """处理普通消息"""
         chat_id = update.effective_chat.id
 
-        # 如果用户正在等待输入凭证
-        if chat_id in self.waiting_for_credentials:
+        # 如果用户正在等待输入凭证 (仅限管理员)
+        if chat_id in self.waiting_for_credentials and Config.is_admin(chat_id):
             await self.handle_credentials(update, context)
             return
 
-        # 其他情况显示帮助
+        # 对其他消息的回复
         if Config.is_admin(chat_id):
-            await update.message.reply_text("请使用 /help 查看可用命令")
+            await update.message.reply_text("未知命令，请使用 /help 查看可用命令")
         else:
-            await update.message.reply_text(" 您没有权限使用此机器人")
+            # 对普通用户，可以回复一个更友好的消息
+            await update.message.reply_text(
+                "👋 你好！我是一个阿里云余额监控机器人。\n"
+                "你可以使用 /start 或 /help 查看我能为你做什么。"
+            )

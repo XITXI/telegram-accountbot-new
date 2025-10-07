@@ -133,6 +133,9 @@ class AliyunBalanceBot:
             CommandHandler("start", self.handlers.start_command)
         )
         self.application.add_handler(
+            CommandHandler("get_id", self.handlers.get_id_command)
+        )
+        self.application.add_handler(
             CommandHandler("bind_aliyun", self.handlers.bind_aliyun_command)
         )
         self.application.add_handler(
@@ -170,7 +173,7 @@ class AliyunBalanceBot:
 
         logger.info("命令处理器注册完成")
 
-    async def health_check(self, request):
+    async def health_check(self, _):
         """健康检查端点"""
         return web.json_response(
             {
