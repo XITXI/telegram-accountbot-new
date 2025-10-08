@@ -55,8 +55,21 @@ setup_config() {
 test_connection() {
     log_info "正在测试与Telegram API的连通性..."
 
-    # 使用curl测试网络连接，设置15秒超时
-    if curl --connect-timeout 15 -s -o /dev/null https://api.telegram.org; then
+    # 如果存在.env文件，则加载
+    if [ -f .env ]; then
+        export $(cat .env | sed 's/#.*//g' | xargs)
+    fi
+
+    # 检查是否配置了代理
+    if [ -n "$PROXY_URL" ]; then
+        log_info "检测到代理配置，将通过代理测试连通性..."
+        CURL_CMD="curl --connect-timeout 15 -s -o /dev/null --proxy $PROXY_URL https://api.telegram.org"
+    else
+        CURL_CMD="curl --connect-timeout 15 -s -o /dev/null https://api.telegram.org"
+    fi
+
+    # 使用curl测试网络连接
+    if eval $CURL_CMD; then
         log_info "✅ 与Telegram API连通性测试通过"
         return 0
     else
